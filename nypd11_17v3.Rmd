@@ -1,0 +1,227 @@
+---
+title: "NYPD: Shooting Incidents in the Five Boroughs"
+author: ""
+date: "11/14/2021"
+output:
+  pdf_document: default
+  html_document: default
+  header-includes:
+    - \usepackage{sectsty}
+    - \allsectionsfont{\color{cyan}}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## NYPD Shooting Incident Data (Historic) 
+
+This report looks at the NYPD (New York Police Department) Shooting Incident Data which lists every shooting incident that occurred in NYC (New York City) from 2006 through the end of the 2020.
+
+To start, the number of incidents per NYC borough are investigated looking both at the basic number of incidents that occurred and looking at the percentage of incidents that occurred based the population of the borough using 2010 census data.
+
+Next, the number of incidents that occurred during COVID years are analyzed.  Year 2018 is used for comparison to years 2019 and 2020.
+
+Finally, a model using data from 2020 is created to predict the time day when incidents occur the most.
+
+Location data is sometimes an approximation in the data set. The data is also reviewed and modified by the NYPD before being published.  Only shooting where victims are injured are included in the data set.  Additionally, the author has lived in New York and has potential bias about the environment and culture.
+
+## The following libraries were used
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(lubridate))
+#suppressMessages(library(modelr))
+#suppressMessages(library(GGally))
+
+
+```
+## Data sets included are
+
+```{r}
+nypd_data_location <- 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+census2010_location <- 'https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD'
+```
+
+## Below is a summary of the NYPD shooting data
+```{r,echo=FALSE}
+filename <- 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+nypd_shooting = read_csv(filename, col_types = cols())
+population_data = read_csv('https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD')
+```
+
+
+```{r echo = FALSE}
+summary(nypd_shooting)
+```
+
+## How many incidents occurred in each borough and how many incidents occurred based on population density  (Incidents/Population)
+Taking a look at the number of incidents that occurred in each borough in NYC shows that the Brooklyn had the highest number of incidents
+
+
+```{r echo = FALSE}
+boro_issues <- table(nypd_shooting$BORO)
+boro_issues_df <- as.data.frame(boro_issues)
+incidents_bar <- ggplot(boro_issues_df, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity")
+incidents_bar
+```
+However, if the population density of a borough is considered, then the Bronx has the highest number of incidents based on population size.  Population data is from the 2010 census values for NYC. It is interesting that when taking into consideration the population of a borough that Manhattan, Queens and Staten Island all have similar incident percentages. It might be helpful to look at the time of the incidents in each borough to see if time of day impacts incidents. 
+
+```{r echo = FALSE}
+# comment create data frame with population values from census values
+# combine population with nypd shootings
+# calculate the percentage of incidents based on population
+boro_population <- select(population_data, 'Borough', '2010' )
+boro_population$Borough=toupper(boro_population$Borough)
+colnames(boro_population)[1] <- "BORO"
+colnames(boro_population)[2] <- "POPULATION"
+
+nypd_shooting %>% full_join(boro_population,by="BORO")
+
+boro_issues <- table(nypd_shooting$BORO)
+boro_issues_df <- as.data.frame(boro_issues)
+
+colnames(boro_issues_df)[1] <- "BORO"
+boro_issues_df <- boro_issues_df %>% full_join(boro_population,by="BORO")
+boro_issues_df <- boro_issues_df[-c(6),] 
+boro_issues_df$inc_per_population <- (boro_issues_df$Freq / boro_issues_df$`POPULATION`) * 100
+```
+
+
+```{r echo = FALSE}
+# use a bar chart to plot the population
+incidents_bar <- ggplot(boro_issues_df, aes(x = BORO, y = inc_per_population)) +
+  geom_bar(stat = "identity")
+incidents_bar
+
+```
+
+## Did COVID have an impact on crime rate?
+
+Comparing the incidents in 2018, 2019 and 2020, there is an increase in the number of incidents in 2020.  Years 2018 and 2019 follow a similar pattern but in 2020 there is an increase of incidents starting in April and though it does start to decrease, there is still a gap.  There could be an indication that side effects from COVID, such as unemployment or unoffical travel restrictions increased shooting incidents. Next steps would be to look at where incidents occurred (at home or on the street, for example.) Additionally, one could see if there is a correlation between the unemployment and the increase in incidents. Also curious is the dip in September; school starts and weather gets nastier.
+
+
+```{r, echo = FALSE}
+# read in NYPD data set and clean date field
+dfa = read_csv(filename, col_types = cols())
+dfa <- mutate(dfa, OCCUR_DATE = mdy(OCCUR_DATE))
+dfa$Month <- format(as.Date(dfa$OCCUR_DATE), "%m")
+
+# create data frames for each year 2018/19/20
+yr2019 <- with(dfa, dfa[(OCCUR_DATE >= "2019-01-01" & OCCUR_DATE <= "2020-01-01"), ])
+yr2020 <- with(dfa, dfa[(OCCUR_DATE >= "2020-01-01" & OCCUR_DATE <= "2021-01-01"), ])
+yr2018 <- with(dfa, dfa[(OCCUR_DATE >= "2018-01-01" & OCCUR_DATE <= "2019-01-01"), ])
+
+# get frequency of incidents based on month for each year
+tab2019 <- table(yr2019$Month)
+df2019 <- as.data.frame(tab2019)
+tab2020 <- table(yr2020$Month)
+df2020 <- as.data.frame(tab2020)
+tab2019 <- table(yr2018$Month)
+df2018 <- as.data.frame(tab2019)
+
+# rename columns to x/y
+names(df2019) <- c("x", "y")
+names(df2020) <- c("x", "y")
+names(df2018) <- c("x", "y")
+
+
+# plot all three years as ling graph
+p <-ggplot() + geom_line(data=df2018, aes(x=x, y = y,group=1, color = "2018")) +
+   geom_line(data=df2019, aes(x=x, y = y,group=1, color = "2019")) +
+     geom_line(data=df2020, aes(x=x,y=y,group=1, color = "2020")) +
+  labs(x = "Month",
+       y = "Number of Incidents") +
+  theme(legend.title = element_text(color="blue", size=10, face="bold")) + theme(legend.text = element_text(colour="blue", size=10, face="bold")) + theme(legend.position="bottom") + scale_color_manual(name = "Years", values = c("2018" = "orange", "2019" = "cyan", "2020"="black"))
+p
+```
+
+\newpage
+## Does time of day impact the number of incidents and can a MODEL be created to predict when incidents might occur.
+
+Looking at the graph of the time of day versus incidents, it appears that there is a decrease in incidents between midnight and 10AM.  At 10am, incidents begin to increase.  Using incidents in all boroughs during the year 2020, a quadratic regression model can be created that can predict the number of incidents that might occur at a certain time.  
+
+```{r, echo=FALSE}
+# read in NYPD Shooting data
+dfa = read_csv(filename, col_types = cols())
+
+```
+
+```{r, echo=FALSE}
+# read in NYPD Shooting data
+dfa <- mutate(dfa, OCCUR_DATE = mdy(OCCUR_DATE))
+dfa$Month <- format(as.Date(dfa$OCCUR_DATE), "%m")
+# create a data frame with just one years worth of data
+df_year <- with(dfa, dfa[(OCCUR_DATE >= "2020-01-01" & OCCUR_DATE <= "2020-12-31"), ])
+
+# separate time into 3 columns we only require hours
+colmn <- paste("col", 1:3)
+df_year<-
+  tidyr::separate(
+    data = df_year,
+    col = OCCUR_TIME,
+    sep = ":",
+    into = colmn,
+    remove = FALSE
+  )
+names(df_year)[names(df_year) == 'col 1'] <- 'HOURS'
+
+# create data frame with the hours and then frequency of incidents
+incidents_tab <- table(df_year$"HOURS")
+df_incidents <- as.data.frame(incidents_tab)
+names(df_incidents) <- c("HOURS", "INCIDENTS")
+df_incidents$HOURS <- as.numeric(as.character(df_incidents$HOURS))
+
+# create a scatter plot of hours and incidents
+p <- ggplot(df_incidents, aes(x=HOURS, y=INCIDENTS)) + geom_point()
+p
+
+
+```
+
+```{r, echo=FALSE}
+# create a linear model 
+linearModel <- lm(INCIDENTS ~ HOURS, data=df_incidents)
+#summary(linearModel)
+```
+## Quadradic Model
+```{r, echo=FALSE}
+# create a quadratic model to predict number of incidents
+df_incidents$HOURS2 <- df_incidents$HOURS^2
+
+#fit quadratic regression model
+quadraticModel <- lm(INCIDENTS ~ HOURS + HOURS2, data=df_incidents)
+summary(quadraticModel)
+
+
+
+```
+
+## Predictive Model
+```{r, echo=FALSE}
+# create prediction model
+lm(formula = INCIDENTS ~ HOURS + HOURS2, data=df_incidents)
+hourValues <- seq(0, 24, 0.1)
+incidentsPredict <- predict(quadraticModel,list(HOURS=hourValues, HOURS2=hourValues^2))
+
+#Plot the incidents and the regression model
+plot(df_incidents$HOURS, df_incidents$INCIDENTS, pch=16)
+lines(hourValues, incidentsPredict,col='blue')
+```
+
+
+## BIASES
+The data from NYPD Shooting Incidents could have some inconsistencies.  It is important to note that the data is reviewed and modified by the NYPD before it is publish.  It would be interesting to find out the scope of what is removed.  Not all shootings are included; only shootings where an individual is injured are included in the data so it is important to keep this in mind when doing an analysis. Additionally, the location data is not exact and sometimes is an estimate or approximation, so it would be important to create careful processes when analyzing this data.  Personally, I have lived in New York and my own idea about the difficulties of living this area may influence the interpretation of the data.   
+
+## Conclusion
+
+Starting with the basics, the report investigated the number of incidents that occurred and whether or not the population of the area changed the data demographics.  At first glance, Brooklyn looked like it had incurred the highest number of incidents. Indeed, using the population to determine the percentage of incidents shows that the Bronx had a higher number of incidents. 
+
+Next, the number of incidents that occurred during COVID years are analyzed.  Year 2018 is used for comparison to years 2019 and 2020. The shooting trend had been decreasing and both 2018 and 2019 had lower number of incidents than previous years.  However, there was a significant jump in the number of incidents during 2020 when COVID began.
+
+Finally, the report investigated the time when incidents occurred and showed that most incidents start increasing in the early morning and start tapering off after midnight. A model was created to predict the number of incidents based on time of day that could be used for future analysis. 
+
+There is more investigation that could be done particularly around COVID incidents versus non COVID incidents.  It would be interesting to see if there are other factors that increased shooting incidents at this time.
+
+
